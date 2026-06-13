@@ -3,6 +3,7 @@ from typing import Any, Dict
 from app.utils.http import Http, Response
 
 from app.plugins.base import FetcherPlugin
+from utils.model import TxtResult
 
 
 class TxtPlugin(FetcherPlugin):
@@ -30,7 +31,6 @@ class TxtPlugin(FetcherPlugin):
         return obj
 
     def _parse(self, r: Response) -> Dict[str, Any]:
-        return {
-            "url": str(r.url),
-            "text": r.text.rstrip(),
-        }
+        return TxtResult.build_from_response(r)._replace(
+            text=r.text.rsplit()
+        )

@@ -7,6 +7,13 @@ from markitdown import MarkItDown
 from io import BytesIO
 from ..utils.md import MD
 
+from ..utils.model import BaseResult
+
+
+class OfficeResult(BaseResult):
+    markdown: str
+    links: tuple[str, ...]
+
 
 class OfficePlugin(FetcherPlugin):
     name = "office"
@@ -42,8 +49,8 @@ class OfficePlugin(FetcherPlugin):
         with BytesIO(r.content) as f:
             md = self.__md.convert(f)
             text = md.text_content
-            return {
-                "url": str(r.url),
-                "text": text.rstrip(),
-                "links": MD.get_links(text)
-            }
+
+            return OfficeResult.build_from_response(r)._replace(
+                links=MD.get_links(text),
+                markdown=text.rstrip(),
+            )

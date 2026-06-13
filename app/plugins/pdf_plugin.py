@@ -4,6 +4,7 @@ from typing import Any, Dict
 from app.utils.http import Http, Response
 
 from app.plugins.base import FetcherPlugin
+from utils.model import TxtResult
 
 
 class PdfPlugin(FetcherPlugin):
@@ -31,7 +32,6 @@ class PdfPlugin(FetcherPlugin):
     def _parse(self, r: Response) -> Dict[str, Any]:
         text = read_pdf(r)
 
-        return {
-            "url": str(r.url),
-            "text": text,
-        }
+        return TxtResult.build_from_response(r)._replace(
+            text=text,
+        )

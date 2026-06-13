@@ -1,10 +1,18 @@
 from ..utils.html import buildSoup, get_text, iter_href
 from ..utils.md import MD
 from ..utils import safe_get_parsed_url, get_parsed_url
+from ..utils.model import BaseResult
 
 from app.utils.http import Http, Response
 
 from app.plugins.base import FetcherPlugin
+from typing import Optional
+
+
+class HtmlResult(BaseResult):
+    html: str
+    title: Optional[str] = None
+    markdown: Optional[str] = None
 
 
 class HtmlPlugin(FetcherPlugin):
@@ -21,7 +29,7 @@ class HtmlPlugin(FetcherPlugin):
     async def parse(cls, *urls: str):
         plg = cls()
         r = await Http.get_response(*urls)
-        obj: dict[str, dict[str]] = {}
+        obj: dict[str, HtmlResult | Exception] = {}
         for url, resp in r.items():
             try:
                 obj[url] = plg._parse(resp)
@@ -39,10 +47,9 @@ class HtmlPlugin(FetcherPlugin):
             if isinstance(link, str) and link not in arr:
                 arr.append(link)
 
-        return {
-            "url": arr.pop(0),
-            "title": get_text(soup.select_one("title")),
-            "html": str(soup),
-            "markdown": MD.convert(soup.select_one("body")),
-            "links": tuple(arr)
-        }
+        return HtmlResult.build_from_response(r)._replace(
+            links=tuple(arr),
+            title=get_text(soup.select_one("title")),
+            html=str(soup),
+            markdown=MD.convert(soup.select_one("body")),
+        )

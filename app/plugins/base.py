@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from ..utils.model import BaseResult
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,5 +17,6 @@ class FetcherPlugin(ABC):
 
     @classmethod
     @abstractmethod
-    async def parse(cls, *urls: str) -> dict[str, dict]:
+    async def parse(cls, *urls: str) -> dict[str, Exception | BaseResult]:
         raise NotImplementedError()
+

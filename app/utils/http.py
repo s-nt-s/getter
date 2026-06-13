@@ -4,15 +4,24 @@ from typing import Optional, Literal, NamedTuple
 from types import MappingProxyType
 
 from httpx import AsyncClient, Response, HTTPError
+from httpx import ConnectError
 from cachetools import TTLCache
+from . import parse_content_type
 
 logger = logging.getLogger(__name__)
 _CACHE = TTLCache(maxsize=1024, ttl=3600)
 
 
+class InfoResponse(NamedTuple):
+    response: Response
+    exception: Exception
+
+
 class UrlType(NamedTuple):
     url: str
     content_type: str
+    status_code: int
+    error: Exception
 
 
 class Http:
@@ -34,32 +43,29 @@ class Http:
         await self.aclose()
 
     @classmethod
-    async def get_type(cls, *urls: Response | str, **kwargs):
+    async def get_type(cls, *urls: str, **kwargs):
         async with cls(**kwargs) as http:
             return await http.get_url_type(*urls)
 
     @classmethod
-    async def get_response(cls, *urls: Response | str, **kwargs):
+    async def get_response(cls, *urls: str, **kwargs):
         async with cls(**kwargs) as http:
-            return await http.fetch(*urls)
+            return await http.get_url_response(*urls)
 
-    async def fetch(self, *urls: str):
+    async def get_url_response(self, *urls: str):
+        data = await self.__fetch(*urls)
+        return MappingProxyType({url: i.response for url, i in data.items() if i.response})
+
+    async def __fetch(self, *urls: str):
         urls = sorted(set(urls))
         responses = await asyncio.gather(*(self.__get(url, "GET") for url in urls))
         return MappingProxyType({url: response for url, response in zip(urls, responses)})
 
-    async def get_url_type(self, *urls: Response | str):
-        urls_to_inspect: set[str] = set()
+    async def get_url_type(self, *urls: str):
         content_types: dict[str, UrlType] = {}
         urls_to_fetch: list[str] = []
 
-        for item in urls:
-            if isinstance(item, str):
-                urls_to_inspect.add(item)
-                continue
-            content_types[str(item.url)] = self.__get_url_type(item)
-
-        for url in sorted(urls_to_inspect.difference(content_types.keys())):
+        for url in sorted(urls):
             cached = _CACHE.get(url)
             if isinstance(cached, UrlType):
                 content_types[url] = cached
@@ -69,7 +75,7 @@ class Http:
         if urls_to_fetch:
             responses = await asyncio.gather(*(self.__get(url, "HEAD") for url in urls_to_fetch))
             for url, response in zip(urls_to_fetch, responses):
-                val = self.__get_url_type(response)
+                val = self.__get_url_type(url, response)
                 _CACHE[url] = val
                 content_types[url] = val
 
@@ -79,20 +85,21 @@ class Http:
         if self.__client is not None and not self.__client.is_closed:
             await self.__client.aclose()
 
-    def __get_url_type(self, r: Response):
-        t = r.headers.get("content-type")
-        url_type = UrlType(str(r.url), content_type=None)
-        if not t:
+    def __get_url_type(self, url: str, r: InfoResponse):
+        url_type = UrlType(
+            url=url,
+            content_type=None,
+            status_code=None,
+            error=r.exception
+        )
+        if r.response is None:
             return url_type
-
-        t = t.split(";", 1)[0].strip().lower()
-        if not t:
-            return url_type
-
-        if t in ("application/pdf", "text/html"):
-            t = t.split("/")[-1]
-
-        return url_type._replace(content_type=t)
+        url_type = url_type._replace(
+            url=str(r.response.url),
+            status_code=r.response.status_code,
+            content_type=parse_content_type(r.headers.get('content-type'))
+        )
+        return url_type
 
     async def __get(self, url: str, method: Literal["GET", "HEAD"]):
         """Fetch URL with simple retry/backoff logic using httpx.AsyncClient.
@@ -104,8 +111,8 @@ class Http:
                 timeout=self.__timeout,
                 follow_redirects=True,
             )
-
-        last_exc: Optional[HTTPError] = None
+        resp: Response | None = None
+        last_exc: Optional[HTTPError | ConnectError] = None
         for attempt in range(1, self.__retries + 1):
             try:
                 if method == "GET":
@@ -116,8 +123,11 @@ class Http:
                     raise ValueError(method)
 
                 resp.raise_for_status()
-                return resp
-            except HTTPError as exc:
+                return InfoResponse(
+                    response=resp,
+                    exception=None
+                )
+            except (HTTPError, ConnectError) as exc:
                 last_exc = exc
                 wait = self.__backoff * (2 ** (attempt - 1))
                 logger.debug(
@@ -136,4 +146,7 @@ class Http:
             url,
             last_exc,
         )
-        raise last_exc
+        return InfoResponse(
+            response=resp,
+            exception=last_exc
+        )

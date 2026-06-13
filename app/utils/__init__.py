@@ -69,3 +69,17 @@ def get_parsed_url(url: str):
     # Reconstruir
     normalized = urlunsplit((scheme, netloc, path, sorted_query, fragment))
     return normalized
+
+
+def parse_content_type(t: str | None):
+    if not t:
+        return None
+
+    t = t.split(";", 1)[0].strip().lower()
+    if not t:
+        return None
+
+    if t in ("application/pdf", "text/html"):
+        t = t.split("/")[-1]
+
+    return t

@@ -1,0 +1,27 @@
+[Unit]
+Description=Getter
+After=docker.service
+Requires=docker.service
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=15
+
+ExecStart=/usr/bin/docker run \
+  --rm \
+  -p 8000:8000 \
+  --log-driver=journald \
+  getter:latest
+
+ExecStop=/usr/bin/docker stop -t 30 getter
+
+TimeoutStartSec=120
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target
